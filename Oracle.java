@@ -2,21 +2,21 @@
 // based on output of select, perform action
 // this is highest performing approach, compared to multi-process/thread
 
-import java.net.Socket;
 import java.net.ServerSocket;
-import java.util.List;
+import java.net.Socket;
 import java.util.ArrayList;
+import java.util.List;
 
 class GraphNode {
-    final List<int[]> adj_nodes;
+    final int[] adj_nodes;
+    static final int MAX_NODES = 26;
 
     public GraphNode() {
-        this.adj_nodes = new ArrayList<>();
+        this.adj_nodes = new int[MAX_NODES];
     }
 
     public void addEdge(int v, int cost) {
-        adj_nodes.add(new int[]{v, cost});
-        return;
+        adj_nodes[v] = cost;
     }
 } 
 
@@ -30,10 +30,6 @@ class Graph {
 
     public void addEdge(int v1, int v2, int cost) {
 
-        if (cost < 0) {
-            return;
-        }
-
         while (this.adjList.size() < Math.max(v1, v2) + 1) {
             this.adjList.add(new GraphNode());
         }
@@ -44,7 +40,6 @@ class Graph {
     public int numNodes() {
         return this.adjList.size();
     }
-
 }
 
 
@@ -164,6 +159,7 @@ public class Oracle {
         this.sendMessages();
     }
 
+    @SuppressWarnings("StringEquality")
     private Graph parseConfigFile(String config_file) {
         java.nio.file.Path path = java.nio.file.Paths.get(config_file);
 
@@ -182,11 +178,11 @@ public class Oracle {
 
                 // Building graph
                 int v2 = v1+1;
-                for (int j = 0; j < values.length; j++) {
-                    if (values[j] == "") {
+                for (String value : values) {
+                    if (value == "") {
                         continue;
                     }
-                    int cost = Integer.parseInt(values[j]);
+                    int cost = Integer.parseInt(value);
                     graph.addEdge(v1, v2, cost);
                     v2++;
                 }

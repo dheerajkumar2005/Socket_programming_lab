@@ -17,7 +17,7 @@ struct network_graph{
 
 struct Node {
     const char* ip_addr;
-    uint16_t port;
+    uint16_t udp_port;
     const char* on_ip_addr;
     uint16_t on_port;
     char NodeAlphabet;
@@ -27,7 +27,7 @@ struct Node {
 
     Node(const char* ip, uint16_t port, const char* on_ip, uint16_t on_port){
         this->ip_addr = ip;
-        this->port = port;
+        this->udp_port = port;
         this->on_ip_addr = on_ip;
         this->on_port = on_port;
 
@@ -84,11 +84,11 @@ int main(int argc, char* argv[]){
         exit(1);
     }
     const char* vn_ip = argv[1];
-    uint16_t vn_port = stoi(argv[2]);
+    uint16_t vn_udp_port = stoi(argv[2]);
     const char* on_ip = argv[3];
     uint16_t on_port = 5050;
 
-    Node* vn = new Node(vn_ip,vn_port,on_ip,on_port);
+    Node* vn = new Node(vn_ip,vn_udp_port,on_ip,on_port);
 
 
 }
