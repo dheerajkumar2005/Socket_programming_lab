@@ -7,6 +7,7 @@
 // #include <netinet/in.h>
 // #include <iostream>
 // #include <unistd.h>
+#include <errno.h>
 #include <bits/stdc++.h>
 
 using namespace std;
@@ -42,8 +43,11 @@ struct Node {
             cerr << "udp socket creation failed\n";
             exit(1);
         }
-        int flags = fcntl(udp_socket,F_GETFL,0);
-        fcntl(udp_socket,F_SETFL,flags|O_NONBLOCK);
+        int flags1 = fcntl(tcp_socket,F_GETFL,0);
+        fcntl(udp_socket,F_SETFL,flags1|O_NONBLOCK);
+
+        int flags2 = fcntl(udp_socket,F_GETFL,0);
+        fcntl(udp_socket,F_SETFL,flags2|O_NONBLOCK);
     }
 
     void connect_to_ON() {
@@ -51,17 +55,35 @@ struct Node {
         memset(&on_addr,0,sizeof(on_addr));
         on_addr.sin_family = AF_INET;
         on_addr.sin_port = htons(on_port);
-        
+
         if(inet_pton(AF_INET,on_ip_addr,&on_addr.sin_addr) <= 0){
             cerr << "invalid on_ip addr\n";
             exit(1);
         }
-        if(connect(tcp_socket,(struct sockaddr*)&on_addr,sizeof(on_addr))){
+        int res = connect(tcp_socket,(struct sockaddr*)&on_addr,sizeof(on_addr));
+        if(res < 0 and errno == EINPROGRESS){
             cerr << "connection to Oracle Node failed\n";
+            close(tcp_socket);
             exit(1);
         }
-        else{
-            cout << "Connection to ON successfull\n";
+        fd_set writefds;
+        FD_ZERO(&writefds);
+        FD_SET(tcp_socket,&writefds);
+
+        int ready = select(tcp_socket+1, NULL, &writefds, NULL, NULL);
+        if(ready < 0){
+            cerr << "Error with select syscall\n";
+            exit(1);
+        }
+        if(FD_ISSET(tcp_socket, &writefds)){
+            int err;
+            socklen_t len = sizeof(err);
+            getsockopt(tcp_socket,SOL_SOCKET,SO_ERROR,&err,&len);
+            if(err!=0){
+                cerr << "Connection failed: " << strerror(err) << '\n';
+                exit(1);
+            }
+            cout << "Successfully connected to Oracle Node\n";
         }
 
         char* message;
@@ -75,21 +97,27 @@ struct Node {
         uint16_t udp_port_be = htons(udp_port);
         memcpy(message,&ip_addr_be,4);
         memcpy(message+4,&udp_port_be,2);
-        ssize_t send_output = send(tcp_socket,message,4,0);
+        ssize_t send_output = send(tcp_socket,message,6,0);
         if(send_output == -1){
             cerr << "Error in sending the CONNECT message\n";
             exit(1);
         }
-        else if(send_output != 4){
-            cerr << "Supposed to send 4 bytes but " << send_output << " bytes sent\n";
+        else if(send_output != 6){
+            cerr << "Supposed to send 6 bytes but " << send_output << " bytes sent\n";
             exit(1); 
         }
         else{
-            cout << "send 4 bytes to ON\n";
+            cout << "send 6 bytes to ON\n";
         }
     }
 
     void recv_from_ON() {
+
+        fd_set readfds;
+
+
+
+
         char* link_state;
         link_state = new char[11];
         ssize_t recv_output = recv(tcp_socket,link_state,11,0);
@@ -103,7 +131,9 @@ struct Node {
         else{
             cout << "received 11 bytes (Link-state) from ON\n";
         }
-        
+
+
+
     }
 
 };
