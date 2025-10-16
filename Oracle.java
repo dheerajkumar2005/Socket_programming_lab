@@ -2,21 +2,22 @@
 // based on output of select, perform action
 // this is highest performing approach, compared to multi-process/thread
 
-import java.net.ServerSocket;
-import java.net.Socket;
+import java.io.IOException;
+import java.net.*;
+import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
 import java.util.ArrayList;
 import java.util.List;
 
 class GraphNode {
-    final int[] adj_nodes;
-    static final int MAX_NODES = 26;
+    final List<int[]> adjNodes;
 
     public GraphNode() {
-        this.adj_nodes = new int[MAX_NODES];
+        this.adjNodes = new ArrayList<>();
     }
 
     public void addEdge(int v, int cost) {
-        adj_nodes[v] = cost;
+        adjNodes.add(new int[]{v, cost});
     }
 } 
 
@@ -44,25 +45,56 @@ class Graph {
 
 
 class Connection {
-    char nodeAlphabet;
-    int port;
-    java.net.InetAddress ipAddress;
-    java.io.BufferedReader in;
-    java.io.PrintWriter out;
+    int nodeIndex;
+    byte nodeAlphabet;
+    byte[] port;
+    InetAddress ipAddress;
 
-    public Connection(char nodeAlphabet, 
-                    int port, 
-                    java.net.InetAddress ipAddress, 
-                    java.io.BufferedReader in, 
-                    java.io.PrintWriter out) {
+    byte[] udpPort;
+    InetAddress udpAddress;
+
+    Socket vn;
+
+    public Connection(
+                        int nodeIndex,
+                        byte nodeAlphabet, 
+                        byte[] port, 
+                        InetAddress ipAddress, 
+                        Socket vn,
+                        byte[] connect
+                    ) {
             
+        this.nodeIndex = nodeIndex;
         this.nodeAlphabet = nodeAlphabet;
-        this.port = port;
-        this.ipAddress = ipAddress;
-        this.in = in;
-        this.out = out;
-    }
 
+        this.port = java.util.Arrays.copyOf(port, 2);
+        this.ipAddress = ipAddress;
+
+        this.vn = vn;
+        System.out.println(this.vn.getInetAddress());
+
+
+        // parsing CONNECT message
+        // first 4 bytes - udp ip address, next 2 bytes - udpPort  
+        byte[] udpAddress = java.util.Arrays.copyOfRange(connect, 0, 4);
+        this.udpPort = java.util.Arrays.copyOfRange(connect, 4, 6);
+        try {
+            this.udpAddress = InetAddress.getByAddress(udpAddress);
+        } catch (UnknownHostException e) {
+            System.out.println("Error in converting " + udpAddress + " to inetAddress");
+        }    
+
+        int portInt = ByteBuffer.wrap(this.port)
+            .order(ByteOrder.BIG_ENDIAN)
+            .getShort() & 0xFFFF;
+        System.out.println("Node " + this.nodeAlphabet + " TCP details: " + this.ipAddress + ":" + portInt);
+
+        int udpPortInt = ByteBuffer.wrap(this.udpPort)
+                .order(ByteOrder.BIG_ENDIAN)
+                .getShort() & 0xFFFF;
+
+        System.out.println("Node " + this.nodeAlphabet + " UDP details: " + this.udpAddress + ":" + udpPortInt);
+    }
 }
 
 
@@ -73,9 +105,10 @@ public class Oracle {
     Graph topology;
     ServerSocket tcpSocket;
     List<Connection> virtualNodes;
-    char nextAlphabet = 'A';
+    byte nextAlphabet = 'A';
 
     public Oracle(String config_file) {
+        System.out.println(this.nextAlphabet);
         this.config_file = config_file;
 
         this.topology = this.parseConfigFile(this.config_file);
@@ -83,41 +116,71 @@ public class Oracle {
         // open TCP socket
         try {
             this.tcpSocket = new ServerSocket(this.port);
-            System.out.println("Server listening on port " + this.port);
             try {
-                java.net.InetAddress bound = this.tcpSocket.getInetAddress();
+                InetAddress bound = this.tcpSocket.getInetAddress();
                 String ip = (bound == null || bound.isAnyLocalAddress())
-                        ? java.net.InetAddress.getLocalHost().getHostAddress()
+                        ? InetAddress.getLocalHost().getHostAddress()
                         : bound.getHostAddress();
-                System.out.println("Server bound to IP: " + ip + " Port: " + this.tcpSocket.getLocalPort());
-            } catch (java.net.UnknownHostException e) {
-                System.out.println("Server bound to Port: " + this.tcpSocket.getLocalPort() + " (local host unknown)");
+                System.out.println("Oracle bound to IP: " + ip);
+                System.out.println("Oracle bound to Port: " + this.tcpSocket.getLocalPort());
+            } catch (UnknownHostException e) {
+                System.out.println("Oracle bound to Port: " + this.tcpSocket.getLocalPort() + " (local host unknown)");
             }
         } catch (java.io.IOException e) {
             System.err.println("I/O error: " + e.getMessage());
         }
 
+        // listen for VNs
         this.virtualNodes = new ArrayList<>();
-        // listen for clients
         for (int i = 0; i < this.topology.numNodes(); i++) {
-            try (Socket client = this.tcpSocket.accept();
-                    java.io.BufferedReader in = new java.io.BufferedReader(new java.io.InputStreamReader(client.getInputStream()));
-                    java.io.PrintWriter out = new java.io.PrintWriter(client.getOutputStream(), true)) {
-                System.out.println("Client connected: " + client.getRemoteSocketAddress());
-                int clientPort = client.getPort();
-                java.net.InetAddress clientIPAddress = client.getInetAddress();
-                String received = in.readLine();
-                System.out.println("Received: " + received);
-                try { Thread.sleep(3000); } catch (InterruptedException ignored) {}
-                out.println("Message received");
-                System.out.println("Response sent, closing connection");
+            try (
+                    Socket vn = this.tcpSocket.accept();
+                    java.io.BufferedReader in = new java.io.BufferedReader(new java.io.InputStreamReader(vn.getInputStream()));
+                    java.io.PrintWriter out = new java.io.PrintWriter(vn.getOutputStream(), true)
+                ) {
+            
+                // VN tcp connection details - ip and port
+                int vnPort = vn.getPort();
+                InetAddress vnIPAddress = vn.getInetAddress();
+                
+                byte[] vnPortBytes = ByteBuffer.allocate(2)   // 2 bytes for a 16-bit value
+                    .order(ByteOrder.BIG_ENDIAN)    // network byte order
+                    .putShort((short) vnPort)       // cast to short
+                    .array();
 
-                this.virtualNodes.add(new Connection(this.nextAlphabet, clientPort, clientIPAddress, in, out));
+                // read CONNECT message
+                byte[] received = new byte[6];
+                int total = 0;
+                java.io.InputStream is = vn.getInputStream();
+                while (total < received.length) {
+                    int n = is.read(received, total, received.length - total);
+                    if (n < 0) {
+                        break;
+                    }
+                    total += n;
+                }
+
+                // Create connection record
+                this.virtualNodes.add(new Connection(
+                                                        i,
+                                                        this.nextAlphabet, 
+                                                        vnPortBytes, 
+                                                        vnIPAddress, 
+                                                        vn,
+                                                        received
+                                                    ));
                 this.nextAlphabet++;
+
+                // System.out.println(received + " " + received.length);
+                // vn.getOutputStream().write(received);
+            
             } catch (java.io.IOException e) {
                 System.err.println("I/O error: " + e.getMessage());
             }
         }
+
+        this.sendMessages();
+
     }
 
     public void run() {
@@ -159,7 +222,6 @@ public class Oracle {
         this.sendMessages();
     }
 
-    @SuppressWarnings("StringEquality")
     private Graph parseConfigFile(String config_file) {
         java.nio.file.Path path = java.nio.file.Paths.get(config_file);
 
@@ -197,20 +259,65 @@ public class Oracle {
 
 
     private void sendMessages() {
+        for (int i = 0; i < this.topology.numNodes(); i++) {
+            GraphNode n = this.topology.adjList.get(i);
+            Connection conn = this.virtualNodes.get(i);
+            int msgLength = 11 * (1 + n.adjNodes.size());
+            byte[] msg = new byte[msgLength];
 
+            int offset = 0;
+            msg[offset] = conn.nodeAlphabet;
+            offset += 1;
+            // getAddress() gives network byte order inherently
+            System.arraycopy(conn.udpAddress.getAddress(), 0, msg, offset, 4);
+            offset += 4;
+            System.arraycopy(conn.udpPort, 0, msg, offset, 2);
+            offset += 2;
+            int cost = 0;
+            byte[] costBytes = ByteBuffer.allocate(4)
+                    .order(ByteOrder.BIG_ENDIAN)  // network byte order
+                    .putInt(cost)
+                    .array();
+            System.arraycopy(costBytes, 0, msg, offset, 4);
+            offset += 4;
+
+            for (int j = 0; j < n.adjNodes.size(); j++) {
+                conn = this.virtualNodes.get(n.adjNodes.get(j)[0]);
+                cost = n.adjNodes.get(j)[1];
+                msg[offset] = conn.nodeAlphabet;
+                offset += 1;
+                // getAddress() gives network byte order inherently
+                System.arraycopy(conn.udpAddress.getAddress(), 0, msg, offset, 4);
+                offset += 4;
+                System.arraycopy(conn.udpPort, 0, msg, offset, 2);
+                offset += 2;
+                costBytes = ByteBuffer.allocate(4)
+                        .order(ByteOrder.BIG_ENDIAN)  // network byte order
+                        .putInt(cost)
+                        .array();
+                System.arraycopy(costBytes, 0, msg, offset, 4);
+                offset += 4;
+            }
+
+            System.out.println(msg);
+            System.out.println(conn.vn.getInetAddress());
+            try {
+                conn.vn.getOutputStream().write(msg);
+            } catch (java.io.IOException e) {
+              System.err.println("Error sending LINK-STATE messages: " + e.getMessage());
+            }
+        }
     }
 
 
     public static void main(String argv[]) {
-        System.out.println("hi");
-
         if (argv.length < 1) {
             System.out.println("Usage: java Oracle <path to config file>");
         }
         String config_file = argv[0];
 
         Oracle oracle = new Oracle(config_file);
-        oracle.run();
+        // oracle.run();
     }
 
 
