@@ -1,0 +1,162 @@
+// #include <fstream>
+// #include <cstring>
+// #include <string>
+#include <arpa/inet.h>
+#include <sys/socket.h>
+#include <fcntl.h>
+// #include <netinet/in.h>
+// #include <iostream>
+// #include <unistd.h>
+#include <bits/stdc++.h>
+
+using namespace std;
+
+
+struct network_graph{
+    vector<int> costs;
+};
+
+
+
+struct Node {
+    const char* ip_addr;
+    uint16_t udp_port;
+    const char* on_ip_addr;
+    uint16_t on_port;
+    char NodeAlphabet;
+
+    int tcp_socket;
+    int udp_socket;
+
+    Node(const char* ip, uint16_t port, const char* on_ip, uint16_t on_port){
+        this->ip_addr = ip;
+        this->udp_port = port;
+        this->on_ip_addr = on_ip;
+        this->on_port = on_port;
+
+        tcp_socket = socket(AF_INET,SOCK_STREAM,0);
+        if(tcp_socket < 0){
+            cerr << "tcp_socket creation failed\n";
+            exit(1);
+        }
+        udp_socket = socket(AF_INET,SOCK_DGRAM,0);
+        if(udp_socket < 0){
+            cerr << "udp socket creation failed\n";
+            exit(1);
+        }
+
+        int flags1 = fcntl(tcp_socket,F_GETFL,0);
+        fcntl(udp_socket,F_SETFL,flags1|O_NONBLOCK);
+
+        int flags2 = fcntl(udp_socket,F_GETFL,0);
+        fcntl(udp_socket,F_SETFL,flags2|O_NONBLOCK);
+
+    }
+
+    void connect_to_ON() {
+        sockaddr_in on_addr;
+        memset(&on_addr,0,sizeof(on_addr));
+        on_addr.sin_family = AF_INET;
+        on_addr.sin_port = htons(on_port);
+        
+        if(inet_pton(AF_INET,on_ip_addr,&on_addr.sin_addr) <= 0){
+            cerr << "invalid on_ip addr\n";
+            exit(1);
+        }
+        if(connect(tcp_socket,(struct sockaddr*)&on_addr,sizeof(on_addr))){
+            cerr << "connection to Oracle Node failed\n";
+            exit(1);
+        };
+        char* message;
+        message = new char[6];
+        bzero(message,6);
+        uint32_t ip_addr_be;
+        if(inet_pton(AF_INET,ip_addr,&ip_addr_be) <= 0){
+            cerr << "invalid virtual node ip addr\n";
+            exit(1);
+        }
+        memcpy(message,&ip_addr_be,4);
+        memcpy(message+4,&udp_port,2);
+        if(send(tcp_socket,message, 6, 0) == -1){
+            cerr << "Error in sending the CONNECT message\n";
+            exit(1);
+        }
+
+
+    }
+
+
+    void receive_from_ON() {
+        // LINK_STATE messages
+        int max_len = 11*26;
+        char buffer[max_len];
+        bzero(buffer, max_len);
+        char* curr = buffer;
+        int len = 0;
+        while ((len = recv(tcp_socket, curr, max_len, 0)) <= 0) {
+            if (len < 0) {
+                cerr << "Error reading from TCP socket" << endl;
+                exit(1);
+            }
+        }
+        curr += len;
+
+        while ((len = recv(tcp_socket, curr, max_len, 0)) > 0) {
+            curr += len;
+        }
+        if (len < 0) {
+            cerr << "Error reading from TCP socket" << endl;
+            exit(1);
+        }
+
+        int received_size = (curr - buffer);
+        cout << "Message size: " << received_size << endl;
+
+        int num_messages = received_size / 11;
+        curr = buffer;
+        for (int i = 0; i < num_messages; i++) {
+            char alphabet = *curr;
+            curr += 1;
+
+            char address[20];
+            bzero(address, 20);
+            inet_ntop(AF_INET, curr, address, 20);
+            curr += 4;
+            
+            uint16_t port = (*((uint16_t*)curr));
+            curr += 2;
+            
+            int cost = ntohl(*((int*)curr));
+            curr += 4;
+
+            cout << "Alphabet: " << alphabet << " UDP address: " << address << " UDP Port: " << port << " Edge cost: " << cost << endl;
+
+            if (cost == 0) {
+                this->NodeAlphabet = alphabet;
+            }
+            else {
+                // store it in graph
+            }
+        }
+
+    }
+
+};
+
+
+
+
+int main(int argc, char* argv[]){
+    if(argc < 5){
+        cout << "Incorrect usage";
+        exit(1);
+    }
+    const char* vn_ip = argv[1];
+    uint16_t vn_udp_port = stoi(argv[2]);
+    const char* on_ip = argv[3];
+    uint16_t on_port = atoi(argv[4]);
+
+    Node* vn = new Node(vn_ip,vn_udp_port,on_ip,on_port);
+    vn->connect_to_ON();
+    vn->receive_from_ON();
+}

@@ -143,8 +143,6 @@ public class Oracle {
         for (int i = 0; i < this.topology.numNodes(); i++) {
             try {
                 Socket vn = this.tcpSocket.accept();
-                // java.io.BufferedReader in = new java.io.BufferedReader(new java.io.InputStreamReader(vn.getInputStream()));
-                // java.io.PrintWriter out = new java.io.PrintWriter(vn.getOutputStream(), true);
             
                 // VN tcp connection details - ip and port
                 vnSockets.add(vn);
