@@ -1,20 +1,30 @@
-// #include <fstream>
-// #include <cstring>
-// #include <string>
+#include <fstream>
+#include <cstring>
+#include <string>
 #include <arpa/inet.h>
 #include <sys/socket.h>
 #include <fcntl.h>
-// #include <netinet/in.h>
-// #include <iostream>
-// #include <unistd.h>
+#include <netinet/in.h>
+#include <iostream>
+#include <unistd.h>
+#include <vector>
 #include <errno.h>
-#include <bits/stdc++.h>
+// #include <bits/stdc++.h>
 
 using namespace std;
 
+struct Neighbour{
+    char alphabet;
+    uint16_t udp_port;
+    uint32_t ip_addr_be;
 
-struct network_graph{
-    vector<int> costs;
+    Neighbour(char alphabet, uint16_t port, char* ip_addr){
+        this->alphabet = alphabet;
+        this->udp_port = port;
+        inet_pton(AF_INET,ip_addr,&ip_addr_be);
+    }
+
+
 };
 
 struct Node {
@@ -23,7 +33,8 @@ struct Node {
     const char* on_ip_addr;
     uint16_t on_port;
     char NodeAlphabet;
-
+    // vector<vector<pair<int,Neighbour*>>> adj(26);
+    vector<int> a(5);
     int tcp_socket;
     int udp_socket;
 
@@ -111,37 +122,72 @@ struct Node {
         }
     }
 
-    void recv_from_ON() {
+    void receive_from_ON() {
+        // LINK_STATE messages
+        int max_len = 11*26;
+        char buffer[max_len];
+        bzero(buffer, max_len);
+        char* curr = buffer;
+        int len = 0;
+        while ((len = recv(tcp_socket, curr, max_len, 0)) <= 0) {
+            if (len < 0) {
+                cerr << "Error reading from TCP socket" << endl;
+                exit(1);
+            }
+        }
+        curr += len;
 
-        fd_set readfds;
-
-        char* link_state;
-        link_state = new char[11];
-        ssize_t recv_output = recv(tcp_socket,link_state,11,0);
-        if(recv_output == -1){
-            cerr << "Error in receiving from ON\n";
+        while ((len = recv(tcp_socket, curr, max_len, 0)) > 0) {
+            curr += len;
+        }
+        if (len < 0) {
+            cerr << "Error reading from TCP socket" << endl;
             exit(1);
         }
-        else if(recv_output != 11){
-            cerr << "supposed to recv 11 bytes but " << recv_output << " bytes received\n";
+
+        int received_size = (curr - buffer);
+        cout << "Message size: " << received_size << endl;
+
+        int num_messages = received_size / 11;
+        curr = buffer;
+        for (int i = 0; i < num_messages; i++) {
+            char alphabet = *curr;
+            curr += 1;
+
+            char address[20];
+            bzero(address, 20);
+            inet_ntop(AF_INET, curr, address, 20);
+            curr += 4;
+            
+            uint16_t port = (*((uint16_t*)curr));
+            curr += 2;
+            
+            int cost = ntohl(*((int*)curr));
+            curr += 4;
+
+            cout << "Alphabet: " << alphabet << " UDP address: " << address << " UDP Port: " << port << " Edge cost: " << cost << endl;
+            
+            if (cost == 0) {
+                this->NodeAlphabet = alphabet;
+            }
+            else {
+                Neighbour* vn = new Neighbour(alphabet,port,address);
+                // adj[(int)(this->NodeAlphabet-'A')].push_back({cost,vn});
+            }
         }
-        else{
-            cout << "received 11 bytes (Link-state) from ON\n";
-        }
-
-
-
 
     }
+
+
 
 };
 
 
 int main(int argc, char* argv[]){
-    if(argc < 5){
-        cout << "Incorrect usage";
-        exit(1);
-    }
+    // if(argc < 5){
+    //     cout << "Incorrect usage";
+    //     exit(1);
+    // }
     const char* vn_ip = argv[1];
     uint16_t vn_udp_port = stoi(argv[2]);
     const char* on_ip = argv[3];
