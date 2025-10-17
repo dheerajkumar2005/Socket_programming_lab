@@ -115,9 +115,6 @@ struct Node {
 
         fd_set readfds;
 
-
-
-
         char* link_state;
         link_state = new char[11];
         ssize_t recv_output = recv(tcp_socket,link_state,11,0);
@@ -126,11 +123,12 @@ struct Node {
             exit(1);
         }
         else if(recv_output != 11){
-            cerr << "upposed to recv 11 bytes but " << recv_output << " bytes received\n";
+            cerr << "supposed to recv 11 bytes but " << recv_output << " bytes received\n";
         }
         else{
             cout << "received 11 bytes (Link-state) from ON\n";
         }
+
 
 
 
