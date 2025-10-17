@@ -9,7 +9,7 @@
 #include <unistd.h>
 #include <vector>
 #include <errno.h>
-// #include <bits/stdc++.h>
+#include <bits/stdc++.h>
 
 using namespace std;
 
@@ -23,8 +23,6 @@ struct Neighbour{
         this->udp_port = port;
         inet_pton(AF_INET,ip_addr,&ip_addr_be);
     }
-
-
 };
 
 struct Node {
@@ -33,8 +31,8 @@ struct Node {
     const char* on_ip_addr;
     uint16_t on_port;
     char NodeAlphabet;
-    // vector<vector<pair<int,Neighbour*>>> adj(26);
-    vector<int> a(5);
+    vector<vector<pair<int,Neighbour*>>> adj{26,vector<pair<int,Neighbour*>>(26,{-1,NULL})};
+    vector<pair<int,char>> routing_table{26,{-1,'\0'}};
     int tcp_socket;
     int udp_socket;
 
@@ -172,28 +170,72 @@ struct Node {
             }
             else {
                 Neighbour* vn = new Neighbour(alphabet,port,address);
-                // adj[(int)(this->NodeAlphabet-'A')].push_back({cost,vn});
+                adj[this->NodeAlphabet-'A'][alphabet-'A'] = {cost,vn};
+            }
+        }
+    }
+    void update_routing_table(){
+        int n = 26;
+        int src = NodeAlphabet-'A';
+        vector<int> dist(n,__INT_MAX__);
+        vector<int> parent(n,-1);
+        vector<bool> visited(n,false);
+
+        priority_queue<pair<int, int>, vector<pair<int, int>>, greater<pair<int, int>>> pq;
+        dist[src] = 0;
+        pq.push({0,src});
+
+        while(!pq.empty()){
+            int u = pq.top().second;
+            pq.pop();
+
+            if(visited[u]) continue;
+            visited[u] = true;
+
+            for(int v=0; v<n; v++){
+                int w = adj[u][v].first;
+                if(w != -1 && !visited[v] && dist[u] + w < dist[v]){
+                    dist[v] = dist[u] + w;
+                    parent[v] = u;
+                    pq.push({dist[v],v});
+                }
             }
         }
 
+        for(int i=0; i<26; i++){
+            if(i == src){
+                continue;
+            }
+            if(dist[i] == __INT_MAX__){
+                continue;
+            }
+            int neighbour = i;
+            while (parent[neighbour] != -1 && parent[neighbour] != src) {
+                neighbour = parent[neighbour];
+            }
+            if(parent[i] != -1){
+                routing_table[i] = {dist[i],neighbour+'A'};
+            }
+            
+        }
     }
-
 
 
 };
 
 
 int main(int argc, char* argv[]){
-    // if(argc < 5){
-    //     cout << "Incorrect usage";
-    //     exit(1);
-    // }
+    if(argc < 5){
+        cout << "Incorrect usage";
+        exit(1);
+    }
     const char* vn_ip = argv[1];
     uint16_t vn_udp_port = stoi(argv[2]);
     const char* on_ip = argv[3];
     uint16_t on_port = 5000;
 
     Node* vn = new Node(vn_ip,vn_udp_port,on_ip,on_port);
-    
+    vn->connect_to_ON();
+    vn->receive_from_ON();
 
 }
