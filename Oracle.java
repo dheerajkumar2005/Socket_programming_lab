@@ -49,6 +49,8 @@ class Connection {
     byte[] port;
     InetAddress ipAddress;
 
+    Socket vn;
+
     byte[] udpPort;
     InetAddress udpAddress;
 
@@ -57,6 +59,7 @@ class Connection {
                         byte nodeAlphabet, 
                         byte[] port, 
                         InetAddress ipAddress, 
+                        Socket vn,
                         byte[] connect
                     ) {
             
@@ -65,6 +68,8 @@ class Connection {
 
         this.port = java.util.Arrays.copyOf(port, 2);
         this.ipAddress = ipAddress;
+
+        this.vn = vn;
 
         // parsing CONNECT message
         // first 4 bytes - udp ip address, next 2 bytes - udpPort  
@@ -99,8 +104,8 @@ public class Oracle {
     ServerSocket tcpSocket;
 
     List<Connection> virtualNodes;
-    static List<Socket> vnSockets = new ArrayList<>();
 
+    int nextIndex = 0;
     byte nextAlphabet = 'A';
 
     public Oracle(String config_file) {
@@ -126,11 +131,9 @@ public class Oracle {
             System.err.println("I/O error: " + e.getMessage());
         }
 
-        this.connectToVNs();
+        this.virtualNodes = new ArrayList<>();
 
-        for (int i = 0; i < vnSockets.size(); i++) {
-            System.out.println(vnSockets.get(i).getInetAddress());
-        }
+        this.connectToVNs();
 
         this.sendMessages();
 
@@ -138,14 +141,12 @@ public class Oracle {
 
     void connectToVNs() {
         // listen for VNs
-        this.virtualNodes = new ArrayList<>();
-
-        for (int i = 0; i < this.topology.numNodes(); i++) {
+        System.out.println(this.virtualNodes.size() + " " + this.topology.numNodes());
+        while (this.virtualNodes.size() < this.topology.numNodes()) {
             try {
                 Socket vn = this.tcpSocket.accept();
             
                 // VN tcp connection details - ip and port
-                vnSockets.add(vn);
                 int vnPort = vn.getPort();
                 InetAddress vnIPAddress = vn.getInetAddress();
                 
@@ -168,12 +169,14 @@ public class Oracle {
 
                 // Create connection record
                 this.virtualNodes.add(new Connection(
-                                                        i,
+                                                        this.nextIndex,
                                                         this.nextAlphabet, 
                                                         vnPortBytes, 
                                                         vnIPAddress, 
+                                                        vn,
                                                         received
                                                     ));
+                this.nextIndex++;
                 this.nextAlphabet++;
 
                 System.out.println(received + " " + received.length);
@@ -186,44 +189,6 @@ public class Oracle {
 
     }
 
-    public void run() {
-        java.nio.file.Path path = java.nio.file.Paths.get(this.config_file);
-        long lastModified = 0L;
-
-        try {
-        if (java.nio.file.Files.exists(path)) {
-            lastModified = java.nio.file.Files.getLastModifiedTime(path).toMillis();
-        }
-        } catch (java.io.IOException e) {
-        System.err.println("Could not read config timestamp: " + e.getMessage());
-        }
-
-        while (true) {
-        try {
-            if (java.nio.file.Files.exists(path)) {
-            long lm = java.nio.file.Files.getLastModifiedTime(path).toMillis();
-            if (lm != lastModified) {
-                lastModified = lm;
-                System.out.println("Config file changed, reloading...");
-                updateGraph();
-            }
-            } else {
-            // config file missing; optionally handle this case
-            }
-            Thread.sleep(1000); // poll interval
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            break;
-        } catch (java.io.IOException e) {
-            System.err.println("Error checking config file: " + e.getMessage());
-        }
-        }
-    }
-
-    private void updateGraph() {
-        this.topology = parseConfigFile(config_file);
-        this.sendMessages();
-    }
 
     private Graph parseConfigFile(String config_file) {
         java.nio.file.Path path = java.nio.file.Paths.get(config_file);
@@ -262,10 +227,10 @@ public class Oracle {
 
 
     private void sendMessages() {
+        System.out.println(this.topology.numNodes());
         for (int i = 0; i < this.topology.numNodes(); i++) {
             GraphNode n = this.topology.adjList.get(i);
             Connection conn = this.virtualNodes.get(i);
-            Socket vn = vnSockets.get(i);
 
             int msgLength = 11 * (1 + n.adjNodes.size());
             byte[] msg = new byte[msgLength];
@@ -287,14 +252,14 @@ public class Oracle {
             offset += 4;
 
             for (int j = 0; j < n.adjNodes.size(); j++) {
-                conn = this.virtualNodes.get(n.adjNodes.get(j)[0]);
+                Connection conn1 = this.virtualNodes.get(n.adjNodes.get(j)[0]);
                 cost = n.adjNodes.get(j)[1];
-                msg[offset] = conn.nodeAlphabet;
+                msg[offset] = conn1.nodeAlphabet;
                 offset += 1;
                 // getAddress() gives network byte order inherently
-                System.arraycopy(conn.udpAddress.getAddress(), 0, msg, offset, 4);
+                System.arraycopy(conn1.udpAddress.getAddress(), 0, msg, offset, 4);
                 offset += 4;
-                System.arraycopy(conn.udpPort, 0, msg, offset, 2);
+                System.arraycopy(conn1.udpPort, 0, msg, offset, 2);
                 offset += 2;
                 costBytes = ByteBuffer.allocate(4)
                         .order(ByteOrder.BIG_ENDIAN)  // network byte order
@@ -305,11 +270,52 @@ public class Oracle {
             }
 
             System.out.println(msg);
-            System.out.println(vn.getInetAddress());
+            System.out.println(conn.vn.getInetAddress());
             try {
-                vn.getOutputStream().write(msg);
+                conn.vn.getOutputStream().write(msg);
             } catch (java.io.IOException e) {
               System.err.println("Error sending LINK-STATE messages: " + e.getMessage());
+            }
+        }
+    }
+
+    private void updateGraph() {
+        this.topology = parseConfigFile(config_file);
+        if (this.topology.numNodes() > this.virtualNodes.size()) {
+            this.connectToVNs();
+        }
+        this.sendMessages();
+    }
+    
+    public void run() {
+        java.nio.file.Path path = java.nio.file.Paths.get(this.config_file);
+        long lastModified = 0L;
+        int poll_interval = 500; // period of monitoring config file
+
+        try {
+        if (java.nio.file.Files.exists(path)) {
+            lastModified = java.nio.file.Files.getLastModifiedTime(path).toMillis();
+        }
+        } catch (java.io.IOException e) {
+        System.err.println("Could not read config timestamp: " + e.getMessage());
+        }
+
+        while (true) {
+            try {
+                if (java.nio.file.Files.exists(path)) {
+                long lm = java.nio.file.Files.getLastModifiedTime(path).toMillis();
+                    if (lm != lastModified) {
+                        lastModified = lm;
+                        System.out.println("Config file changed ...");
+                        updateGraph();
+                    }
+                }
+                Thread.sleep(poll_interval);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                break;
+            } catch (java.io.IOException e) {
+                System.err.println("Error checking config file: " + e.getMessage());
             }
         }
     }
@@ -322,7 +328,7 @@ public class Oracle {
         String config_file = argv[0];
 
         Oracle oracle = new Oracle(config_file);
-        // oracle.run();
+        oracle.run();
     }
 
 

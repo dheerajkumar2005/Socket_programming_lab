@@ -8,6 +8,7 @@
 // #include <iostream>
 // #include <unistd.h>
 #include <bits/stdc++.h>
+#include <chrono>
 
 using namespace std;
 
@@ -45,11 +46,11 @@ struct Node {
             exit(1);
         }
 
-        int flags1 = fcntl(tcp_socket,F_GETFL,0);
-        fcntl(udp_socket,F_SETFL,flags1|O_NONBLOCK);
+        // int flags1 = fcntl(tcp_socket,F_GETFL,0);
+        // fcntl(udp_socket,F_SETFL,flags1|O_NONBLOCK);
 
-        int flags2 = fcntl(udp_socket,F_GETFL,0);
-        fcntl(udp_socket,F_SETFL,flags2|O_NONBLOCK);
+        // int flags2 = fcntl(udp_socket,F_GETFL,0);
+        // fcntl(udp_socket,F_SETFL,flags2|O_NONBLOCK);
 
     }
 
@@ -92,18 +93,18 @@ struct Node {
         char buffer[max_len];
         bzero(buffer, max_len);
         char* curr = buffer;
-        int len = 0;
-        while ((len = recv(tcp_socket, curr, max_len, 0)) <= 0) {
-            if (len < 0) {
-                cerr << "Error reading from TCP socket" << endl;
-                exit(1);
-            }
-        }
+        int len = recv(tcp_socket, curr, max_len, 0);
+        // while ((len = recv(tcp_socket, curr, max_len, 0)) <= 0) {
+        //     if (len < 0) {
+        //         cerr << "Error reading from TCP socket" << endl;
+        //         exit(1);
+        //     }
+        // }
         curr += len;
 
-        while ((len = recv(tcp_socket, curr, max_len, 0)) > 0) {
-            curr += len;
-        }
+        // while ((len = recv(tcp_socket, curr, max_len, 0)) > 0) {
+        //     curr += len;
+        // }
         if (len < 0) {
             cerr << "Error reading from TCP socket" << endl;
             exit(1);
@@ -141,6 +142,34 @@ struct Node {
 
     }
 
+    /* Reference: https://www.geeksforgeeks.org/computer-networks/tcp-and-udp-server-using-select/ */
+    void run() {
+        
+        int poll_interval = 100; // in milliseconds
+
+        fd_set rset, wset;
+        FD_ZERO(&rset);
+        FD_ZERO(&wset);
+        int maxfdp1 = max(tcp_socket, udp_socket) + 1;
+
+        while (true) {
+            FD_SET(tcp_socket, &rset); 
+            FD_SET(udp_socket, &rset); 
+            FD_SET(udp_socket, &wset); 
+            int nready = select(maxfdp1, &rset, &wset, NULL, NULL); 
+            // cout << nready << endl;
+            
+            // tcp connection
+            if (FD_ISSET(tcp_socket, &rset)) {
+                cout << "hi" << endl;
+                receive_from_ON();
+            }
+
+            usleep(poll_interval * 1000);
+
+        }
+    }
+
 };
 
 
@@ -159,4 +188,5 @@ int main(int argc, char* argv[]){
     Node* vn = new Node(vn_ip,vn_udp_port,on_ip,on_port);
     vn->connect_to_ON();
     vn->receive_from_ON();
+    vn->run();
 }
