@@ -12,11 +12,18 @@
 
 using namespace std;
 
+struct AdjacentNode{
+    char alphabet;
+    uint16_t udp_port;
+    uint32_t ip_addr_be;
 
-struct network_graph{
-    vector<int> costs;
+    AdjacentNode(char alphabet, uint16_t port, char* ip_addr){
+        this->alphabet = alphabet;
+        this->udp_port = port;
+        inet_pton(AF_INET,ip_addr,&ip_addr_be);
+    }
+
 };
-
 
 
 struct Node {
@@ -26,8 +33,14 @@ struct Node {
     uint16_t on_port;
     char NodeAlphabet;
 
+    vector<pair<int, shared_ptr<AdjacentNode>>> adj;
+    map<char, map<char, int>> graph;
+    map<char, uint16_t> last_seq_no;
+
     int tcp_socket;
     int udp_socket;
+
+    int MAX_NODES = 26;
 
     Node(const char* ip, uint16_t port, const char* on_ip, uint16_t on_port){
         this->ip_addr = ip;
@@ -89,28 +102,22 @@ struct Node {
 
     void receive_from_ON() {
         // LINK_STATE messages
-        int max_len = 11*26;
+        int max_len = 11*MAX_NODES;
         char buffer[max_len];
         bzero(buffer, max_len);
         char* curr = buffer;
-        int len = recv(tcp_socket, curr, max_len, 0);
-        // while ((len = recv(tcp_socket, curr, max_len, 0)) <= 0) {
-        //     if (len < 0) {
-        //         cerr << "Error reading from TCP socket" << endl;
-        //         exit(1);
-        //     }
-        // }
-        curr += len;
 
-        // while ((len = recv(tcp_socket, curr, max_len, 0)) > 0) {
-        //     curr += len;
-        // }
-        if (len < 0) {
-            cerr << "Error reading from TCP socket" << endl;
-            exit(1);
+        int received_size = 0;
+        while (received_size == 0 || received_size % 11 != 0) {
+            int len = recv(tcp_socket, curr, max_len, 0);
+            if (len < 0) {
+                cerr << "Error reading from TCP socket" << endl;
+                exit(1);
+            }
+            received_size += len;
+            curr += len;
         }
 
-        int received_size = (curr - buffer);
         cout << "Message size: " << received_size << endl;
 
         int num_messages = received_size / 11;
@@ -136,7 +143,8 @@ struct Node {
                 this->NodeAlphabet = alphabet;
             }
             else {
-                // store it in graph
+                shared_ptr<AdjacentNode> vn = make_shared<AdjacentNode>(alphabet,port,address);
+                adj.push_back({cost,vn});
             }
         }
 
@@ -157,14 +165,17 @@ struct Node {
             FD_SET(udp_socket, &rset); 
             FD_SET(udp_socket, &wset); 
             int nready = select(maxfdp1, &rset, &wset, NULL, NULL); 
-            // cout << nready << endl;
             
             // tcp connection
             if (FD_ISSET(tcp_socket, &rset)) {
-                cout << "hi" << endl;
                 receive_from_ON();
             }
-
+            if (FD_ISSET(udp_socket, &rset)) {
+                // read udp packets, update graph, update queue of packets to be forwarded
+            }
+            if (FD_ISSET(udp_socket, &wset)) {
+                // send the LSP packets and forwarded packets
+            }
             usleep(poll_interval * 1000);
 
         }
