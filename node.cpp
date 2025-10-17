@@ -31,8 +31,13 @@ struct Node {
     const char* on_ip_addr;
     uint16_t on_port;
     char NodeAlphabet;
-    vector<vector<pair<int,Neighbour*>>> adj{26,vector<pair<int,Neighbour*>>(26,{-1,NULL})};
-    vector<pair<int,char>> routing_table{26,{-1,'\0'}};
+
+    unordered_map<char,unordered_map<char,pair<int,Neighbour*>>> adj;
+    unordered_map<char,pair<int,char>> routing_table;
+
+    unordered_map<char,sockaddr_in> udp_sockaddr_map;
+    uint16_t seqno;
+    unordered_map<char,uint16_t> last_recv_seqno;
     int tcp_socket;
     int udp_socket;
 
@@ -52,11 +57,25 @@ struct Node {
             cerr << "udp socket creation failed\n";
             exit(1);
         }
-        int flags1 = fcntl(tcp_socket,F_GETFL,0);
-        fcntl(udp_socket,F_SETFL,flags1|O_NONBLOCK);
+        // int flags1 = fcntl(tcp_socket,F_GETFL,0);
+        // fcntl(udp_socket,F_SETFL,flags1|O_NONBLOCK);
 
         int flags2 = fcntl(udp_socket,F_GETFL,0);
         fcntl(udp_socket,F_SETFL,flags2|O_NONBLOCK);
+
+        sockaddr_in own_ip_addr;
+        own_ip_addr.sin_family = AF_INET;
+        own_ip_addr.sin_port = htons(udp_port);
+        if(inet_pton(AF_INET,ip_addr,&own_ip_addr.sin_addr) <= 0){
+            cerr << "invalid on_ip addr\n";
+            exit(1);
+        }
+
+        if(bind(udp_socket,(sockaddr*)&own_ip_addr,sizeof(own_ip_addr)) < 0){
+            cerr << "error in binding udp_port\n";
+            exit(1);
+        }
+
     }
 
     void connect_to_ON() {
@@ -95,8 +114,8 @@ struct Node {
             cout << "Successfully connected to Oracle Node\n";
         }
 
-        char* message;
-        message = new char[6];
+        char message[6];
+        // unique_ptr<char[]> message = make_unique<char[]>(6);
         bzero(message,6);
         uint32_t ip_addr_be;
         if(inet_pton(AF_INET,ip_addr,&ip_addr_be) <= 0){
@@ -170,31 +189,71 @@ struct Node {
             }
             else {
                 Neighbour* vn = new Neighbour(alphabet,port,address);
-                adj[this->NodeAlphabet-'A'][alphabet-'A'] = {cost,vn};
+                adj[NodeAlphabet][alphabet] = {cost,vn};
             }
         }
     }
-    void update_routing_table(){
-        int n = 26;
-        int src = NodeAlphabet-'A';
-        vector<int> dist(n,__INT_MAX__);
-        vector<int> parent(n,-1);
-        vector<bool> visited(n,false);
 
-        priority_queue<pair<int, int>, vector<pair<int, int>>, greater<pair<int, int>>> pq;
+    void make_udp_sockaddr_map(){
+        for(int i=0; i<26; i++){
+            if(adj[NodeAlphabet-'A'][i].first != -1){
+                sockaddr_in tmp;
+                tmp.sin_family = AF_INET;
+                tmp.sin_port = adj[NodeAlphabet-'A'][i].second->udp_port;
+                tmp.sin_addr.s_addr = adj[NodeAlphabet-'A'][i].second->ip_addr_be;
+                udp_sockaddr_map[adj[NodeAlphabet-'A'][i].second->alphabet] = tmp;
+            }
+        }
+    }
+
+    void broadcast_lsp(){
+        int max_size = 5*25+3;
+        char buffer[max_size];
+        bzero(buffer,max_size);
+        memcpy(buffer,&NodeAlphabet,1);
+        memcpy(buffer+1,&seqno,2);
+        char* curr = buffer+3;
+        for(auto [c,p] : adj[NodeAlphabet]){
+            memcpy(curr,&c,1);
+            memcpy(curr+1,&p.first,4);
+            curr += 4;
+        }
+        for(auto [c,s] : udp_sockaddr_map){
+            sendto(udp_socket,buffer,max_size,0,(sockaddr*)&s,sizeof(s));
+        }
+        seqno++;
+    }
+    // void recv_lsp(){
+
+    // }
+
+    void update_routing_table(){
+        int n = adj.size();
+        char src = NodeAlphabet;
+        unordered_map<char,int> dist;
+        unordered_map<char,int> parent;
+        unordered_map<char,bool> visited;
+
+        for(auto [c,u] : adj){
+            dist[c] = INT_MAX;
+            parent[c] = -1;
+            visited[c] = false;
+        }
+
+        priority_queue<pair<int, char>, vector<pair<int, char>>, greater<pair<int, char>>> pq;
         dist[src] = 0;
         pq.push({0,src});
 
         while(!pq.empty()){
-            int u = pq.top().second;
+            char u = pq.top().second;
             pq.pop();
 
             if(visited[u]) continue;
             visited[u] = true;
 
-            for(int v=0; v<n; v++){
-                int w = adj[u][v].first;
-                if(w != -1 && !visited[v] && dist[u] + w < dist[v]){
+            for(auto [v, p] : adj[u]){
+                int w = p.first;
+                if(!visited[v] && dist[u] + w < dist[v]){
                     dist[v] = dist[u] + w;
                     parent[v] = u;
                     pq.push({dist[v],v});
@@ -202,24 +261,17 @@ struct Node {
             }
         }
 
-        for(int i=0; i<26; i++){
-            if(i == src){
-                continue;
-            }
-            if(dist[i] == __INT_MAX__){
-                continue;
-            }
-            int neighbour = i;
-            while (parent[neighbour] != -1 && parent[neighbour] != src) {
+        for(auto [c,u]: adj){
+            if(c == NodeAlphabet || dist[c] == INT_MAX) continue;
+            char neighbour = c;
+            while(parent[neighbour] != -1 && parent[neighbour] != src){
                 neighbour = parent[neighbour];
             }
-            if(parent[i] != -1){
-                routing_table[i] = {dist[i],neighbour+'A'};
+            if(parent[c] != -1){
+                routing_table[c] = {dist[c],neighbour};
             }
-            
         }
     }
-
 
 };
 
