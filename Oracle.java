@@ -2,7 +2,6 @@
 // based on output of select, perform action
 // this is highest performing approach, compared to multi-process/thread
 
-import java.io.IOException;
 import java.net.*;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
@@ -53,14 +52,11 @@ class Connection {
     byte[] udpPort;
     InetAddress udpAddress;
 
-    Socket vn;
-
     public Connection(
                         int nodeIndex,
                         byte nodeAlphabet, 
                         byte[] port, 
                         InetAddress ipAddress, 
-                        Socket vn,
                         byte[] connect
                     ) {
             
@@ -69,10 +65,6 @@ class Connection {
 
         this.port = java.util.Arrays.copyOf(port, 2);
         this.ipAddress = ipAddress;
-
-        this.vn = vn;
-        System.out.println(this.vn.getInetAddress());
-
 
         // parsing CONNECT message
         // first 4 bytes - udp ip address, next 2 bytes - udpPort  
@@ -101,10 +93,14 @@ class Connection {
 public class Oracle {
 
     String config_file;
-    int port = 5000;
     Graph topology;
+
+    int port = 5000;
     ServerSocket tcpSocket;
+
     List<Connection> virtualNodes;
+    static List<Socket> vnSockets = new ArrayList<>();
+
     byte nextAlphabet = 'A';
 
     public Oracle(String config_file) {
@@ -130,16 +126,28 @@ public class Oracle {
             System.err.println("I/O error: " + e.getMessage());
         }
 
+        this.connectToVNs();
+
+        for (int i = 0; i < vnSockets.size(); i++) {
+            System.out.println(vnSockets.get(i).getInetAddress());
+        }
+
+        this.sendMessages();
+
+    }
+
+    void connectToVNs() {
         // listen for VNs
         this.virtualNodes = new ArrayList<>();
+
         for (int i = 0; i < this.topology.numNodes(); i++) {
-            try (
-                    Socket vn = this.tcpSocket.accept();
-                    java.io.BufferedReader in = new java.io.BufferedReader(new java.io.InputStreamReader(vn.getInputStream()));
-                    java.io.PrintWriter out = new java.io.PrintWriter(vn.getOutputStream(), true)
-                ) {
+            try {
+                Socket vn = this.tcpSocket.accept();
+                // java.io.BufferedReader in = new java.io.BufferedReader(new java.io.InputStreamReader(vn.getInputStream()));
+                // java.io.PrintWriter out = new java.io.PrintWriter(vn.getOutputStream(), true);
             
                 // VN tcp connection details - ip and port
+                vnSockets.add(vn);
                 int vnPort = vn.getPort();
                 InetAddress vnIPAddress = vn.getInetAddress();
                 
@@ -166,20 +174,17 @@ public class Oracle {
                                                         this.nextAlphabet, 
                                                         vnPortBytes, 
                                                         vnIPAddress, 
-                                                        vn,
                                                         received
                                                     ));
                 this.nextAlphabet++;
 
-                // System.out.println(received + " " + received.length);
+                System.out.println(received + " " + received.length);
                 // vn.getOutputStream().write(received);
             
             } catch (java.io.IOException e) {
                 System.err.println("I/O error: " + e.getMessage());
             }
         }
-
-        this.sendMessages();
 
     }
 
@@ -262,6 +267,8 @@ public class Oracle {
         for (int i = 0; i < this.topology.numNodes(); i++) {
             GraphNode n = this.topology.adjList.get(i);
             Connection conn = this.virtualNodes.get(i);
+            Socket vn = vnSockets.get(i);
+
             int msgLength = 11 * (1 + n.adjNodes.size());
             byte[] msg = new byte[msgLength];
 
@@ -300,9 +307,9 @@ public class Oracle {
             }
 
             System.out.println(msg);
-            System.out.println(conn.vn.getInetAddress());
+            System.out.println(vn.getInetAddress());
             try {
-                conn.vn.getOutputStream().write(msg);
+                vn.getOutputStream().write(msg);
             } catch (java.io.IOException e) {
               System.err.println("Error sending LINK-STATE messages: " + e.getMessage());
             }
