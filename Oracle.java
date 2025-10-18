@@ -98,6 +98,7 @@ class Connection {
 public class Oracle {
 
     String config_file;
+    long lastModified = 0L;
     Graph topology;
 
     int port = 5000;
@@ -112,6 +113,15 @@ public class Oracle {
         this.config_file = config_file;
 
         this.topology = this.parseConfigFile(this.config_file);
+
+        java.nio.file.Path path = java.nio.file.Paths.get(this.config_file);
+        try {
+            if (java.nio.file.Files.exists(path)) {
+                this.lastModified = java.nio.file.Files.getLastModifiedTime(path).toMillis();
+            }
+            } catch (java.io.IOException e) {
+            System.err.println("Could not read config timestamp: " + e.getMessage());
+        }
 
         // open TCP socket
         try {
@@ -210,7 +220,9 @@ public class Oracle {
                         continue;
                     }
                     int cost = Integer.parseInt(value);
-                    graph.addEdge(v1, v2, cost);
+                    if (cost > 0) {
+                        graph.addEdge(v1, v2, cost);
+                    }
                     v2++;
                 }
                 v1++;
@@ -276,7 +288,7 @@ public class Oracle {
     }
 
     private void updateGraph() {
-        this.topology = parseConfigFile(config_file);
+        this.topology = parseConfigFile(this.config_file);
         if (this.topology.numNodes() > this.virtualNodes.size()) {
             this.connectToVNs();
         }
@@ -285,26 +297,22 @@ public class Oracle {
     
     public void run() {
         java.nio.file.Path path = java.nio.file.Paths.get(this.config_file);
-        long lastModified = 0L;
         int poll_interval = 500; // period of monitoring config file
 
-        try {
-        if (java.nio.file.Files.exists(path)) {
-            lastModified = java.nio.file.Files.getLastModifiedTime(path).toMillis();
-        }
-        } catch (java.io.IOException e) {
-        System.err.println("Could not read config timestamp: " + e.getMessage());
-        }
-
         while (true) {
+            // System.out.println("hi");
             try {
                 if (java.nio.file.Files.exists(path)) {
-                long lm = java.nio.file.Files.getLastModifiedTime(path).toMillis();
+                    long lm = java.nio.file.Files.getLastModifiedTime(path).toMillis();
+                    // System.out.println(lm + " " + lastModified);
                     if (lm != lastModified) {
                         lastModified = lm;
                         System.out.println("Config file changed ...");
                         updateGraph();
                     }
+                }
+                else {
+                    System.out.println("config file does not exist");
                 }
                 Thread.sleep(poll_interval);
             } catch (InterruptedException e) {

@@ -12,4 +12,6 @@
 # Example matrix for the example network shown in instructions is below
 
 # Cost from A to B
-3
+3 4 -1
+-1 7
+5
