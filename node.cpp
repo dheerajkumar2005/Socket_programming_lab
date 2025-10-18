@@ -39,8 +39,8 @@ struct Node {
     uint16_t on_port;
     char NodeAlphabet;
 
-    unordered_map<char, unordered_map<char, pair<int, shared_ptr<Neighbour>>>> adj;
-    unordered_map<char,pair<int,char>> routing_table;
+    map<char, map<char, pair<int, shared_ptr<Neighbour>>>> adj;
+    map<char,pair<int,char>> routing_table;
 
     unordered_map<char,shared_ptr<sockaddr_in>> udp_sockaddr_map;
     uint16_t seqno;
@@ -131,7 +131,7 @@ struct Node {
             exit(1); 
         }
         else{
-            cout << "send 6 bytes to ON\n";
+            cout << "sent 6 bytes to ON\n";
         }
 
     }
@@ -206,7 +206,7 @@ struct Node {
         char* curr = buffer + 3;
         int len = 3;
         for(auto [c,p] : adj[NodeAlphabet]){
-            cout << c << endl;
+            // cout << c << endl;
             memcpy(curr,&c,1);
             memcpy(curr+1,&p.first,4);
             curr += 5;
@@ -237,7 +237,7 @@ struct Node {
                     exit(1);
                 }
             }
-            cout << n << endl;
+            // cout << n << endl;
 
             char* curr = buffer;
             char origin_alphabet = *curr;
@@ -257,12 +257,12 @@ struct Node {
 
             shared_ptr<Message> m = make_shared<Message>();
             memcpy(m->data, &buffer, n);
-            cout << (char)m->data[0] << endl;
+            // cout << (char)m->data[0] << endl;
             m->len = n;
             fwd_queue.push(m);
             for(int i=0; i<(n-3)/5; i++){
                 char a = *curr;
-                cout << origin_alphabet << " " << a << endl;
+                // cout << origin_alphabet << " " << a << endl;
                 curr+=1;
                 int cost = *((int*)(curr));
                 curr+=4;
@@ -276,11 +276,11 @@ struct Node {
 
     void forward_lsp(){
         if (fwd_queue.size() > 0) {
-            cout << "Forwarding " << fwd_queue.size() << " messages" << endl;
+            // cout << "Forwarding " << fwd_queue.size() << " messages" << endl;
         }
         while(!fwd_queue.empty()){
             shared_ptr<Message> m = fwd_queue.front();
-            cout << (char)m->data[0] << endl;
+            // cout << (char)m->data[0] << endl;
             fwd_queue.pop();
             for(auto [c,s] : udp_sockaddr_map){
                 int bytes = sendto(udp_socket, m->data, m->len, 0, (sockaddr*)&(*s), sizeof(sockaddr_in));
@@ -362,7 +362,7 @@ struct Node {
     void run() {
         
         int poll_interval = 100; // in milliseconds
-        int broadcast_interval = 3000; // in milliseco
+        int broadcast_interval = 10000; // in milliseco
         int last_broadcast = 0;
 
         fd_set rset, wset;
