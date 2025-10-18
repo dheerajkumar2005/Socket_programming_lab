@@ -294,6 +294,7 @@ struct Node {
     }
 
     void print_network(){
+        cout << "---------------Printing Network--------------" << '\n';
         cout << "This node: " << NodeAlphabet << '\n';
         for(auto [c1, u]: adj){
             cout << "Node " << c1 << " : ";
@@ -349,10 +350,11 @@ struct Node {
             }
         }
 
-        cout << "Updated routing table:" << endl;
+        cout << "-------------Updated routing table-----------------" << '\n';
+        cout << "Destination" << '\t' << "Next hop" << "Total Cost" << '\n'; 
         for (auto [c, p] : routing_table) {
             if(c == NodeAlphabet) continue;
-            cout << c << " " << p.second << " " << p.first << '\n';    
+            cout << c << '\t'  << p.second << '\t' << p.first << '\n';    
         }
 
     }
