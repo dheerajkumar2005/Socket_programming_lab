@@ -25,6 +25,11 @@ struct Neighbour{
     }
 };
 
+struct Message{
+    char data[500];
+    int len;
+};
+
 struct Node {
     const char* ip_addr;
     uint16_t udp_port;
@@ -38,6 +43,8 @@ struct Node {
     unordered_map<char,sockaddr_in> udp_sockaddr_map;
     uint16_t seqno;
     unordered_map<char,uint16_t> last_recv_seqno;
+    queue<Message> fwd_queue;
+    char buffer[1024];
     int tcp_socket;
     int udp_socket;
 
@@ -57,8 +64,6 @@ struct Node {
             cerr << "udp socket creation failed\n";
             exit(1);
         }
-        // int flags1 = fcntl(tcp_socket,F_GETFL,0);
-        // fcntl(udp_socket,F_SETFL,flags1|O_NONBLOCK);
 
         int flags2 = fcntl(udp_socket,F_GETFL,0);
         fcntl(udp_socket,F_SETFL,flags2|O_NONBLOCK);
@@ -75,6 +80,7 @@ struct Node {
             cerr << "error in binding udp_port\n";
             exit(1);
         }
+        this->seqno = 1;
 
     }
 
@@ -213,20 +219,64 @@ struct Node {
         memcpy(buffer,&NodeAlphabet,1);
         memcpy(buffer+1,&seqno,2);
         char* curr = buffer+3;
+        int len = 3;
         for(auto [c,p] : adj[NodeAlphabet]){
             memcpy(curr,&c,1);
             memcpy(curr+1,&p.first,4);
-            curr += 4;
+            curr += 5;
+            len+=5;
         }
         for(auto [c,s] : udp_sockaddr_map){
-            sendto(udp_socket,buffer,max_size,0,(sockaddr*)&s,sizeof(s));
+            sendto(udp_socket,buffer,len,0,(sockaddr*)&s,sizeof(s));
         }
         seqno++;
     }
-    // void recv_lsp(){
-
-    // }
-
+    void recv_lsp(){
+        while(true){
+            char buffer[500];
+            ssize_t n = recvfrom(udp_socket,buffer,sizeof(buffer),0,NULL,NULL);
+            if(n < 0){
+            if(errno == EAGAIN || errno == EWOULDBLOCK){
+                break;
+            }
+            else{
+                cerr << "error in recvfrom\n";
+                exit(1);
+            }
+            }
+            char* curr = buffer;
+            char origin_alphabet = *curr;
+            curr+=1;
+            if(origin_alphabet == NodeAlphabet) continue;
+            uint16_t recv_seqno = *((uint16_t*)curr);
+            curr+=2;
+            if(recv_seqno <= last_recv_seqno[origin_alphabet]) continue;
+            else last_recv_seqno[origin_alphabet]++;
+            Message m;
+            memcpy(&m.data,&buffer,n);
+            m.len = n;
+            fwd_queue.push(m);
+            for(int i=0; i<(n-3)/5; i++){
+                char a = *curr;
+                curr+=1;
+                int cost = *((int*)(curr));
+                curr+=4;
+                Neighbour* nei = new Neighbour(a,NULL,NULL);
+                adj[origin_alphabet][a] = {cost,nei};
+            }
+        }
+        update_routing_table();
+    }
+    void forward_lsp(){
+        while(!fwd_queue.empty()){
+            Message m = fwd_queue.front();
+            fwd_queue.pop();
+            for(auto [c,s] : udp_sockaddr_map){
+                sendto(udp_socket,&m.data,m.len,0,(sockaddr*)&s,sizeof(s));
+            }
+        }
+    }
+    
     void update_routing_table(){
         int n = adj.size();
         char src = NodeAlphabet;
