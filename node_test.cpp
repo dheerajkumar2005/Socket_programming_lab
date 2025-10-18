@@ -79,6 +79,11 @@ struct Node {
             cerr << "invalid on_ip addr\n";
             exit(1);
         }
+        if(bind(tcp_socket,(sockaddr*)&own_ip_addr,sizeof(own_ip_addr)) < 0){
+            cerr << "error in binding tcp_port\n";
+            exit(1);
+        }
+
 
         if(bind(udp_socket,(sockaddr*)&own_ip_addr,sizeof(own_ip_addr)) < 0){
             cerr << "error in binding udp_port\n";
@@ -273,7 +278,8 @@ struct Node {
             cout << (char)m->data[0] << endl;
             fwd_queue.pop();
             for(auto [c,s] : udp_sockaddr_map){
-                sendto(udp_socket, m->data, m->len, 0, (sockaddr*)&s, sizeof(s));
+                int bytes = sendto(udp_socket, m->data, m->len, 0, (sockaddr*)&(*s), sizeof(sockaddr_in));
+                cout << "bytes sent to " << c << " : " << bytes << '\n'; 
             }
         }
     }

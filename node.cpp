@@ -236,13 +236,13 @@ struct Node {
             char buffer[500];
             ssize_t n = recvfrom(udp_socket,buffer,sizeof(buffer),0,NULL,NULL);
             if(n < 0){
-            if(errno == EAGAIN || errno == EWOULDBLOCK){
-                break;
-            }
-            else{
-                cerr << "error in recvfrom\n";
-                exit(1);
-            }
+                if(errno == EAGAIN || errno == EWOULDBLOCK){
+                    break;
+                }
+                else{
+                    cerr << "error in recvfrom\n";
+                    exit(1);
+                }
             }
             char* curr = buffer;
             char origin_alphabet = *curr;
