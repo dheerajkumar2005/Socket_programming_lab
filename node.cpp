@@ -174,7 +174,7 @@ struct Node {
             int cost = ntohl(*((int*)curr));
             curr += 4;
 
-            cout << "Alphabet: " << alphabet << " UDP address: " << address << " UDP Port: " << port << " Edge cost: " << cost << endl;
+            cout << "Alphabet: " << alphabet << " UDP address: " << address << " UDP Port: " << ntohs(port) << " Edge cost: " << cost << endl;
 
             if (cost == 0) {
                 this->NodeAlphabet = alphabet;
@@ -351,7 +351,7 @@ struct Node {
         }
 
         cout << "-------------Updated routing table-----------------" << '\n';
-        cout << "Destination" << '\t' << "Next hop" << "Total Cost" << '\n'; 
+        cout << "Destination" << '\t' << "Next hop" << '\t' << "Total Cost" << '\n'; 
         for (auto [c, p] : routing_table) {
             if(c == NodeAlphabet) continue;
             cout << c << '\t'  << p.second << '\t' << p.first << '\n';    
