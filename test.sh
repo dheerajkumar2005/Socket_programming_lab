@@ -1,7 +1,7 @@
 config_test="./config_test.txt"
-node_program="./node_test.cpp"
+node_program="./node.cpp"
 oracle_program="./Oracle.java"
-oracle_ip="127.0.1.1"
+oracle_ip="192.168.1.133"
 oracle_port=5000
 
 # Initial config
