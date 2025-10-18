@@ -109,7 +109,6 @@ public class Oracle {
     byte nextAlphabet = 'A';
 
     public Oracle(String config_file) {
-        System.out.println(this.nextAlphabet);
         this.config_file = config_file;
 
         this.topology = this.parseConfigFile(this.config_file);
@@ -141,7 +140,7 @@ public class Oracle {
 
     void connectToVNs() {
         // listen for VNs
-        System.out.println(this.virtualNodes.size() + " " + this.topology.numNodes());
+        // System.out.println(this.virtualNodes.size() + " " + this.topology.numNodes());
         while (this.virtualNodes.size() < this.topology.numNodes()) {
             try {
                 Socket vn = this.tcpSocket.accept();
@@ -179,14 +178,12 @@ public class Oracle {
                 this.nextIndex++;
                 this.nextAlphabet++;
 
-                System.out.println(received + " " + received.length);
-                // vn.getOutputStream().write(received);
+                // System.out.println(received + " " + received.length);
             
             } catch (java.io.IOException e) {
                 System.err.println("I/O error: " + e.getMessage());
             }
         }
-
     }
 
 
@@ -227,7 +224,7 @@ public class Oracle {
 
 
     private void sendMessages() {
-        System.out.println(this.topology.numNodes());
+        // System.out.println(this.topology.numNodes());
         for (int i = 0; i < this.topology.numNodes(); i++) {
             GraphNode n = this.topology.adjList.get(i);
             Connection conn = this.virtualNodes.get(i);
@@ -269,8 +266,7 @@ public class Oracle {
                 offset += 4;
             }
 
-            System.out.println(msg);
-            System.out.println(conn.vn.getInetAddress());
+            System.out.println("Sending to " + conn.vn.getInetAddress() + " : " + conn.port);
             try {
                 conn.vn.getOutputStream().write(msg);
             } catch (java.io.IOException e) {
