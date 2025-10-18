@@ -125,7 +125,28 @@ public class Oracle {
 
         // open TCP socket
         try {
-            this.tcpSocket = new ServerSocket(this.port);
+            // bind to a non-loopback IPv4 address if available
+            InetAddress bindAddr = null;
+            java.util.Enumeration<NetworkInterface> ifaces = NetworkInterface.getNetworkInterfaces();
+            while (ifaces.hasMoreElements() && bindAddr == null) {
+                NetworkInterface nif = ifaces.nextElement();
+                if (!nif.isUp() || nif.isLoopback()) continue;
+                java.util.Enumeration<InetAddress> addrs = nif.getInetAddresses();
+                while (addrs.hasMoreElements()) {
+                    InetAddress addr = addrs.nextElement();
+                    if (addr instanceof Inet4Address && !addr.isLoopbackAddress()) {
+                        bindAddr = addr;
+                        break;
+                    }
+                }
+            }
+
+            if (bindAddr != null) {
+                this.tcpSocket = new ServerSocket(this.port, 50, bindAddr);
+            } else {
+                System.out.println("No non-loopback IPv4 address found; binding to wildcard (all interfaces).");
+                this.tcpSocket = new ServerSocket(this.port);
+            }
             try {
                 InetAddress bound = this.tcpSocket.getInetAddress();
                 String ip = (bound == null || bound.isAnyLocalAddress())
